@@ -29,7 +29,49 @@ uygulandı. Container üzerinde 12 adımlı setup/quote/confirm/replay/cancel ak
 Swagger ve health doğrulandı. Onay tekrarı aynı JSON yanıtını döndürdü ve nakit
 ikinci kez düşmedi. .NET/PostgreSQL zaman hassasiyeti farkı regresyon testiyle
 yakalanıp düzeltildi. Derleme sıfır uyarı ve sıfır hatayla tamamlandı.
-Sonraki geliştirme aşaması müşteri yatırması, mutabakat/onay ve raporlamadır.
+Üçüncü aşamanın yatırma adımı (A11/B7) de tamamlandı. Güncel test paketi 72 unit
+ve 34 gerçek PostgreSQL entegrasyon testinden oluşur; hiçbir test atlanmadı.
+Sonraki geliştirme aşaması mutabakat/onay, ledger tutarlılık kontrolü ve raporlamadır.
+
+## Üçüncü aşamanın ilk adımı — yatırma (A11, B7)
+
+Bu adımın kapsamı müşteri yatırması ve DEPOSIT ledger kayıtlarıdır. Mutabakat,
+raporlama ve outbox sonraki adımlarda tamamlanacaktır.
+
+Kod ve testler tamamlandı; EF model değişikliği olmadığı doğrulandı. Docker'daki
+API üzerinde 14 adımlı Postman koleksiyonunun HTTP akışı doğrulandı: taşma/iade
+dağılımı, yalnız kabul edilen banknotların bakiyeye eklenmesi, idempotent onay,
+iptal ve bakıma dönüş geçti. Swagger ve health HTTP 200 döndü. Derleme sıfır
+uyarı ve sıfır hatayla tamamlandı.
+
+Uygulama sırası:
+
+1. Girdi ve yanıt sözleşmesi: tanınan banknot sayıları, tanınmayan sayı,
+   kaset bazında kabul ve kupür bazında iade dağılımı.
+2. Domain: bütün girdiyi önce doğrula; eşleşen recycling kasetleri, deposit
+   kaseti ve müşteriye iade sırasını kapasiteye göre uygula.
+3. Application/API: aynı ATM transaction/kilidinde sonucu döndür; DEPOSIT
+   hareketlerine yatırma kimliği ekle. Yeni tablo veya bağımlılık gerekmiyor.
+4. Testler: eşleşme/taşma/karma kapasite, rezervasyon varken yatırma,
+   hatalı girdide değişmezlik, gerçek DB'de paralel yatırma ve çekimle birlikte çalışma.
+5. Swagger, Postman, README ve Docker üzerinde çalışan akış doğrulaması.
+
+Kararlar:
+
+- Aynı para birimi/kupür birden çok recycling kasetinde varsa numara sırası
+  kullanılır; tüm eşleşen kasetler dolmadan deposit kasetine geçilmez.
+- Fiziksel stok kapasiteyi belirler. Rezervasyon yer açmaz; yatırma mevcut
+  rezervasyonun sayısını veya banknot dağılımını değiştirmez.
+- Tek istekte farklı para birimleri bulunabilir. Tekrarlanan kupür satırları
+  birleştirilir; deposit kasetinde yer için girdi satırlarının ilk görülme sırası kullanılır.
+- En fazla 60 banknot grubu kabul edilir. Banknot sayısı kaset kapasitesinden
+  büyük olabilir; sığmayanlar iade edilir. Toplamlarda `long` kullanılarak taşma önlenir.
+- Sadece tanınmayan banknot içeren istek geçerlidir. Hiç banknot içermeyen
+  istek reddedilir. Tanınmayan banknotlar ve iadeler stok/ledger'a eklenmez.
+- Yanıt banknot sayıları üzerinden kaset/para birimi/kupür dağılımını verir.
+  Fiziksel banknot seri numaraları girdide bulunmadığından izlenmez.
+- Deposit POST yeniden gönderilirse yeni yatırmadır; vaka yatırma için
+  idempotency istemediğinden ek bir garanti sunulmaz.
 
 ## Gereksinim ve doğrulama eşleştirmesi
 

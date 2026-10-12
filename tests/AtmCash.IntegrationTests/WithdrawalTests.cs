@@ -8,7 +8,7 @@ using AtmCash.Domain.Withdrawals;
 using AtmCash.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using static AtmCash.IntegrationTests.WithdrawalScenario;
+using static AtmCash.IntegrationTests.AtmScenario;
 
 namespace AtmCash.IntegrationTests;
 
@@ -321,19 +321,6 @@ public sealed class WithdrawalTests(DatabaseFixture fixture) : IClassFixture<Dat
         fixture.Clock.Advance(target.ToUniversalTime() - now);
     }
 
-    private async Task AssertLedgerMatchesAsync(Guid atmId)
-    {
-        await using var scope = fixture.Application.Services.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<CashDbContext>();
-        var cassetteIds = await db.Cassettes.Where(item => item.AtmId == atmId).Select(item => item.Id).ToArrayAsync();
-        var inventory = await db.Inventory.Where(item => cassetteIds.Contains(item.CassetteId)).ToArrayAsync();
-        var movements = await db.Movements.Where(item => cassetteIds.Contains(item.CassetteId)).ToArrayAsync();
-        foreach (var item in inventory)
-        {
-            var history = movements.Where(movement => movement.CassetteId == item.CassetteId
-                && movement.Currency == item.Currency && movement.Denomination == item.Denomination).ToArray();
-            Assert.Equal(item.NoteCount, history.Sum(movement => movement.NoteDelta));
-            Assert.Equal(item.ReservedCount, history.Sum(movement => movement.ReservedDelta));
-        }
-    }
+    private Task AssertLedgerMatchesAsync(Guid atmId)
+        => LedgerAssertions.MatchInventoryAsync(fixture.Application.Services, atmId);
 }

@@ -56,6 +56,18 @@ public sealed class Cassette
     }
 
     internal void Load(Currency currency, int denomination, int count, DateTimeOffset now)
+        => AddNotes(currency, denomination, count, MovementType.LOAD, now);
+
+    internal void Deposit(Currency currency, int denomination, int count, DateTimeOffset now, Guid depositId)
+    {
+        ValidateLoad(currency, denomination, count);
+        if (count > Capacity - NoteCount)
+            throw new DomainException("cassette_capacity_exceeded", "A cassette can hold at most 100 banknotes.");
+        AddNotes(currency, denomination, count, MovementType.DEPOSIT, now, depositId);
+    }
+
+    private void AddNotes(Currency currency, int denomination, int count, MovementType movementType,
+        DateTimeOffset now, Guid? referenceId = null)
     {
         var inventory = _inventory.SingleOrDefault(item => item.Currency == currency && item.Denomination == denomination);
         if (inventory is null)
@@ -64,7 +76,7 @@ public sealed class Cassette
             _inventory.Add(inventory);
         }
         inventory.AddNotes(count);
-        _movements.Add(new CassetteMovement(Id, currency, denomination, MovementType.LOAD, count, 0, now));
+        _movements.Add(new CassetteMovement(Id, currency, denomination, movementType, count, 0, now, referenceId));
     }
 
     internal void ValidateWithdrawalNotes(Currency currency, int denomination, int count, bool requireReserved)

@@ -1,4 +1,5 @@
 using AtmCash.Domain.Atms;
+using AtmCash.Application.Common;
 
 namespace AtmCash.Application.Atms;
 
@@ -19,7 +20,7 @@ public sealed class AtmService(IAtmStore store, TimeProvider clock)
         => (await store.UpdateAsync(id, atm => atm.Configure(configurations), cancellationToken)).ToView();
 
     public async Task<AtmView> LoadAsync(Guid id, IReadOnlyCollection<CashLoad> loads, CancellationToken cancellationToken)
-        => (await store.UpdateAsync(id, atm => atm.Load(loads, clock.GetUtcNow()), cancellationToken)).ToView();
+        => (await store.UpdateAsync(id, atm => atm.Load(loads, clock.GetOperationTime()), cancellationToken)).ToView();
 
     public async Task<AtmView> ChangeStateAsync(Guid id, AtmState target, CancellationToken cancellationToken)
         => (await store.UpdateAsync(id, atm => atm.ChangeState(target), cancellationToken)).ToView();

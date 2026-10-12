@@ -8,4 +8,5 @@ public interface IAtmStore
     Task AddAsync(Atm atm, CancellationToken cancellationToken);
     Task<Atm?> FindAsync(Guid id, CancellationToken cancellationToken);
     Task<Atm> UpdateAsync(Guid id, Action<Atm> change, CancellationToken cancellationToken);
+    Task<TResult> UpdateAsync<TResult>(Guid id, Func<Atm, TResult> change, CancellationToken cancellationToken);
 }

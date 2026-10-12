@@ -75,7 +75,7 @@ tests/
   AtmCash.IntegrationTests/ Gerçek PostgreSQL ve HTTP akışları
 docs/
   implementation-plan.md  Gereksinim eşleştirmesi ve geliştirme sırası
-postman/                  Setup ve çekim akışlarının koleksiyonları
+postman/                  Setup, çekim ve yatırma akışlarının koleksiyonları
 ```
 
 Domain dış katmanlara bağımlı değildir. Application Domain'e, Infrastructure
@@ -113,9 +113,15 @@ istek modelleri ve yanıt DTO'ları kullanır.
   tarama gecikse de uzamaz. Servis DB'deki kayıtları kullandığı için restart sonrası
   temizlik devam eder. Süresi dolmuş confirm için rezervasyon bırakma commit
   edilir, ardından 410 hatası döner.
-- **Ledger:** Yükleme LOAD; çekim RESERVATION, RESERVATION_RELEASE ve WITHDRAWAL
-  hareketlerini stok değişimleriyle aynı transaction'da kaydeder. `ReferenceId`
-  ilgili quote'u gösterir. Onayda tüm rezervasyon bırakılır, yalnız seçilen tutar
+- **Yatırma:** Banknotlar önce eşleşen recycling kasetlerine numara sırasıyla,
+  sonra ortak deposit kasetine gider. Yer kalmazsa sığmayanlar iade edilir.
+  Fiziksel not sayısı kapasiteyi belirler; rezervasyon yer açmaz. Her not türü
+  için kaset bazındaki kabul ve kupür bazındaki iade sayıları döner. Stok ekleme
+  elle yüklemeyle aynı domain yordamını kullanır, hareket tipi DEPOSIT'tir.
+  ATM kilidi aynı transaction içinde yatırma, yükleme ve çekim için ortaktır.
+- **Ledger:** Yükleme LOAD; çekim RESERVATION, RESERVATION_RELEASE ve WITHDRAWAL;
+  yatırma DEPOSIT hareketlerini stok değişimleriyle aynı transaction'da kaydeder.
+  `ReferenceId` ilgili quote veya yatırma kimliğini gösterir. Onayda tüm rezervasyon bırakılır, yalnız seçilen tutar
   düşülür. İptal/süre dolumu fiziksel bakiyeyi değiştirmez.
   Fiziksel stok farkı ile rezervasyon farkı ayrı alanlardır. EF değişiklik
   kontrolü ve PostgreSQL trigger'ları mevcut hareketlerin değiştirilmesini,
@@ -155,10 +161,18 @@ Kalan günlük limiti aşan istek reddedilir. Confirm için istemci teklifin sun
 tutarlardan birini açıkça seçmelidir. İptal tekrarlanabilir; iptal/süre dolumu sonrası
 yanıttaki `reservedAmount` sıfırdır. Teklif banknot dağıtımı sabittir; onay anında
 başka teklifler doluluk oranlarını değiştirmiş olsa da ayrılan kasetler kullanılır.
+Yatırma birden fazla para birimi içerebilir. Tekrarlanan banknot grupları birleştirilir;
+deposit kasetinin kalan kapasitesini paylaşırken grupların ilk görülme sırası korunur.
+İstek en fazla 60 grup içerir, sığmayan büyük banknot sayıları `long` toplamlarla
+iade edilir. Yalnız tanınmayan banknot içeren istek kabul edilir; boş istek reddedilir.
+Tanınmayan ve iade edilen banknotlar stok/ledger'a yazılmaz. `unrecognizedCount`
+alanı zorunludur ve sıfır olabilir. Başarılı deposit POST tekrarı yeni yatırma sayılır;
+vaka bu işlem için idempotency istemez. Yanıttaki kimlik, kabul edilen DEPOSIT
+hareketlerini ilişkilendirir; bu aşamada ayrı yatırma geçmişi/GET endpoint'i yoktur.
 
 ## Tamamlananlar, bitmemiş işler ve bilinen sınırlamalar
 
-Mevcut ilk iki aşama:
+Mevcut kapsam (ilk iki aşama ve üçüncü aşamanın yatırma adımı):
 
 - ATM oluşturma/okuma; dört recycling ve bir deposit kaseti.
 - TRY/USD/EUR, 20/50/100/500; konfigürasyon, 100 banknot kapasitesi.
@@ -171,19 +185,25 @@ Mevcut ilk iki aşama:
 - Kart HMAC, para birimi bazında günlük limit ve İstanbul gün sınırı.
 - Kalıcı idempotency; tekrar ve eşzamanlı onayda tek nakit düşümü.
 - Gerçek PostgreSQL üzerinde iki API örneğiyle B6 ve farklı ATM'lerde kart limiti testleri.
+- A11/B7 müşteri yatırması, recycling/deposit taşması, tanınmayan ve sığmayan banknot iadeleri.
+- Para birimi bazında kabul toplamları, yatırma ile ilişkili değiştirilemez DEPOSIT kayıtları.
+- Gerçek PostgreSQL üzerinde iki API örneğiyle paralel yatırma ve yatırma/çekim testleri.
 
-Henüz tamamlanmadı: müşteri yatırması, boşaltma,
+Henüz tamamlanmadı: boşaltma,
 mutabakat/onay, kur tablosu, tam operasyon raporu, ledger tutarlılık endpoint'i,
 düşük nakit/outbox ve outbox gönderim hizmeti. Postman koleksiyonları setup ve
-çekim akışlarını kapsar; yatırma/mutabakat/raporu da içeren tam uçtan uca teslim
+çekim/yatırma akışlarını kapsar; mutabakat/raporu da içeren tam uçtan uca teslim
 senaryosu sonraki aşamada tamamlanacaktır.
 Bu sürüm henüz vaka tesliminin tamamı değildir.
 
-12 Ekim 2026 doğrulaması: 53 unit ve 24 gerçek PostgreSQL entegrasyon testi geçti;
+12 Ekim 2026 doğrulaması: 72 unit ve 34 gerçek PostgreSQL entegrasyon testi geçti;
 hiçbir test atlanmadı. Testler otomatik migration, günlük limitler, iki API örneğiyle
-paralel quote, idempotency, ledger replay, background expiration ve gece yarısı
-senaryolarını kapsar. Docker Compose üzerinden ikinci migration otomatik uygulandı;
-container'daki API'de 12 adımlı setup/quote/confirm/replay/cancel akışı doğrulandı.
+paralel quote, idempotency, ledger replay, background expiration, gece yarısı,
+yatırma/iade, çoklu para birimi ve yatırma/çekim eşzamanlılık senaryolarını kapsar.
+EF modelinde yatırma adımı için değişiklik yoktur; mevcut inventory ve ledger
+tabloları kullanılır. Docker Compose'daki 14 adımlı setup/çekim/yatırma akışı
+doğrulandı: taşma örneğinde dört banknot kabul edildi; üç tanınan ve iki tanınmayan
+banknot iade edildi. Fiziksel stok yalnızca kabul edilen dört banknot kadar arttı.
 İlk onay ve tekrar onayın JSON yanıtı birebir aynıydı; envanter yalnızca bir kez
 azaldı. Swagger ve health endpoint'leri HTTP 200 döndü. Derleme sıfır uyarı ve
 sıfır hatayla tamamlandı.
@@ -199,6 +219,30 @@ sıfır hatayla tamamlandı.
 confirm'in tekrarı, envanter, ikinci quote'un iptali ve bakıma dönüşü içerir.
 `quoteId` ve her çalıştırmaya özel `idempotencyKey` otomatik atanır. Tekliften sonra
 confirm'i 60 saniye içinde çalıştırın; Runner bu akışı sırayla yürütür.
+
+`postman/atm-cash-flow.postman_collection.json` 14 adımlı setup/çekim/yatırma
+akışıdır. Yüklemede TRY 100 kasetinde 98, deposit kasetinde 99 banknot bulunur.
+160 TRY çekiminden sonra 6 adet TRY 100 ve 1 adet EUR 50 yatırılır. Dört banknot
+kabul edilir, üç tanınan ve iki tanınmayan banknot iade edilir. Stok, idempotent
+onay tekrarı, iptal ve bakıma dönüş assertions içerir. Mutabakat ve rapor adımları
+ilerleyen aşamada eklenecektir.
+
+Yatırma API'si: `POST /api/atms/{atmId}/deposits`
+
+```json
+{
+  "notes": [
+    { "currency": "TRY", "denomination": 100, "count": 6 },
+    { "currency": "EUR", "denomination": 50, "count": 1 }
+  ],
+  "unrecognizedCount": 2
+}
+```
+
+Yanıt `accepted` içinde kaset/para birimi/kupür bazında dağılımı, `returned`
+içinde kapasiteye sığmayan tanınan banknotları, `unrecognizedReturnedCount`
+içinde tanınmayan iadeleri verir. `acceptedTotals` yalnız kabul edilen tutarları
+para birimi bazında gösterir. İşlem yalnız IN_SERVICE durumunda yapılabilir.
 
 Çekim API'si:
 
@@ -225,4 +269,8 @@ tanımı kaldırılarak ProblemDetails sözleşmesi tutarlı hale getirildi.
 Canlı container akışında bulunan zaman hassasiyeti farkı 100ns tick içeren
 regresyon testiyle yeniden üretildi; ilk onay ve DB'den tekrar yanıtının birebir
 eşit olması için işlem zamanları mikro saniye hassasiyetinde standartlaştırıldı.
+Yatırma adımında karma deposit kapasitesi, rezervasyonun fiziksel yer kaplaması,
+çoklu para birimi ve büyük/tekrarlanan sayılar test edildi. Stok ekleme ve zaman
+hassasiyeti kodları tekrar kullanılacak biçimde ayrıldı; testler ortak ATM setup
+ve ledger doğrulama yardımcılarını kullanır. Yeni paket veya tablo eklenmedi.
 İlerleyen aşamalarda yapılan düzeltmeler bu bölümde güncellenecektir.

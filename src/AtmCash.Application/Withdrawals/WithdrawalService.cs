@@ -2,6 +2,7 @@ using AtmCash.Domain.Cash;
 using AtmCash.Domain.Atms;
 using AtmCash.Domain.Common;
 using AtmCash.Domain.Withdrawals;
+using AtmCash.Application.Common;
 
 namespace AtmCash.Application.Withdrawals;
 
@@ -20,7 +21,7 @@ public sealed class WithdrawalService(IWithdrawalStore store, ICardFingerprint c
             throw new DomainException("invalid_withdrawal_amount", "Withdrawal amount must be positive.");
         return await store.ExecuteAsync(new WithdrawalLocks(atmId, cardHash), async (session, token) =>
         {
-            var now = OperationTime();
+            var now = clock.GetOperationTime();
             session.Atm.EnsureInService();
             await ReleaseExpiredAsync(session, now, token);
             var used = await session.GetDailyUsageAsync(cardHash, currency, BusinessDate(now), now, token);
@@ -65,7 +66,7 @@ public sealed class WithdrawalService(IWithdrawalStore store, ICardFingerprint c
             if (previous is not null)
                 return new ConfirmationAttempt(quote.ToConfirmationView(), null);
 
-            var now = OperationTime();
+            var now = clock.GetOperationTime();
             await ReleaseExpiredAsync(session, now, token);
             QuoteOption selected;
             try { selected = quote.ValidateConfirmation(amount, now); }
@@ -89,7 +90,7 @@ public sealed class WithdrawalService(IWithdrawalStore store, ICardFingerprint c
         await FindIdentityAsync(atmId, quoteId, cancellationToken);
         return await store.ExecuteAsync(new WithdrawalLocks(atmId), async (session, token) =>
         {
-            await ReleaseExpiredAsync(session, OperationTime(), token);
+            await ReleaseExpiredAsync(session, clock.GetOperationTime(), token);
             return (await session.FindQuoteAsync(quoteId, token) ?? throw new QuoteNotFoundException(quoteId)).ToView();
         }, cancellationToken);
     }
@@ -99,7 +100,7 @@ public sealed class WithdrawalService(IWithdrawalStore store, ICardFingerprint c
         await FindIdentityAsync(atmId, quoteId, cancellationToken);
         return await store.ExecuteAsync(new WithdrawalLocks(atmId), async (session, token) =>
         {
-            var now = OperationTime();
+            var now = clock.GetOperationTime();
             await ReleaseExpiredAsync(session, now, token);
             var quote = await session.FindQuoteAsync(quoteId, token) ?? throw new QuoteNotFoundException(quoteId);
             if (quote.Cancel())
@@ -110,11 +111,11 @@ public sealed class WithdrawalService(IWithdrawalStore store, ICardFingerprint c
 
     public async Task<int> ExpireDueAsync(CancellationToken cancellationToken)
     {
-        var atmIds = await store.FindAtmsWithExpiredQuotesAsync(OperationTime(), cancellationToken);
+        var atmIds = await store.FindAtmsWithExpiredQuotesAsync(clock.GetOperationTime(), cancellationToken);
         var released = 0;
         foreach (var atmId in atmIds)
             released += await store.ExecuteAsync(new WithdrawalLocks(atmId),
-                (session, token) => ReleaseExpiredAsync(session, OperationTime(), token), cancellationToken);
+                (session, token) => ReleaseExpiredAsync(session, clock.GetOperationTime(), token), cancellationToken);
         return released;
     }
 
@@ -123,13 +124,6 @@ public sealed class WithdrawalService(IWithdrawalStore store, ICardFingerprint c
 
     private static DateOnly BusinessDate(DateTimeOffset now)
         => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, BusinessTimeZone).DateTime);
-
-    // Canonical precision keeps the first result identical to a persisted/replayed result.
-    private DateTimeOffset OperationTime()
-    {
-        var now = clock.GetUtcNow();
-        return now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMicrosecond));
-    }
 
     private static async Task<int> ReleaseExpiredAsync(IWithdrawalSession session, DateTimeOffset now, CancellationToken token)
     {

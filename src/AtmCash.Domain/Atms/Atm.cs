@@ -1,5 +1,6 @@
 using AtmCash.Domain.Cash;
 using AtmCash.Domain.Common;
+using AtmCash.Domain.Deposits;
 using AtmCash.Domain.Withdrawals;
 
 namespace AtmCash.Domain.Atms;
@@ -81,6 +82,53 @@ public sealed class Atm
     {
         if (State != AtmState.IN_SERVICE)
             throw new DomainException("invalid_atm_state", "Customer transactions require IN_SERVICE state.");
+    }
+
+    public DepositResult Deposit(IReadOnlyCollection<NoteBatch> notes, int unrecognizedCount, DateTimeOffset now)
+    {
+        EnsureInService();
+        if (unrecognizedCount < 0)
+            throw new DomainException("invalid_unrecognized_count", "Unrecognized note count cannot be negative.");
+        if (notes.Count > DepositResult.MaximumNoteGroups || notes.Any(note => note is null))
+            throw new DomainException("invalid_deposit_notes", "Provide valid banknote groups, up to 60 entries.");
+        if (notes.Count == 0 && unrecognizedCount == 0)
+            throw new DomainException("empty_deposit", "Provide at least one recognized or unrecognized banknote.");
+        // Validate the whole request before changing a cassette.
+        foreach (var note in notes)
+        {
+            Banknotes.Validate(note.Currency, note.Denomination);
+            if (note.Count <= 0)
+                throw new DomainException("invalid_note_count", "Recognized note counts must be positive.");
+        }
+
+        var depositId = Guid.NewGuid();
+        var accepted = new List<DepositPlacement>();
+        var returned = new List<ReturnedDepositNotes>();
+        var depositCassette = _cassettes.Single(cassette => cassette.Type == CassetteType.DepositOnly);
+        // GroupBy retains first-occurrence order, making mixed deposits deterministic.
+        foreach (var group in notes.GroupBy(note => (note.Currency, note.Denomination)))
+        {
+            var (currency, denomination) = group.Key;
+            var remaining = group.Sum(note => (long)note.Count);
+            var recyclingCassettes = _cassettes.Where(cassette => cassette.Type == CassetteType.Recycling
+                    && cassette.Currency == currency && cassette.Denomination == denomination)
+                .OrderBy(cassette => cassette.Number);
+            foreach (var cassette in recyclingCassettes)
+                PlaceInto(cassette);
+            PlaceInto(depositCassette);
+            if (remaining > 0)
+                returned.Add(new ReturnedDepositNotes(currency, denomination, remaining));
+
+            void PlaceInto(Cassette cassette)
+            {
+                var count = (int)Math.Min(remaining, Cassette.Capacity - cassette.NoteCount);
+                if (count == 0) return;
+                cassette.Deposit(currency, denomination, count, now, depositId);
+                accepted.Add(new DepositPlacement(cassette.Id, cassette.Number, currency, denomination, count));
+                remaining -= count;
+            }
+        }
+        return new DepositResult(depositId, Id, now, accepted.AsReadOnly(), returned.AsReadOnly(), unrecognizedCount);
     }
 
     public void ReserveNotes(Currency currency, IReadOnlyCollection<CassetteAllocation> allocations,

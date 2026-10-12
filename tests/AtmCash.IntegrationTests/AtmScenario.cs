@@ -3,13 +3,14 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AtmCash.Application.Atms;
+using AtmCash.Application.Deposits;
 using AtmCash.Application.Withdrawals;
 using AtmCash.Domain.Atms;
 using AtmCash.Domain.Cash;
 
 namespace AtmCash.IntegrationTests;
 
-internal static class WithdrawalScenario
+internal static class AtmScenario
 {
     private static long _cardSequence;
     public static string NewCard() => "4" + Interlocked.Increment(ref _cardSequence).ToString("D15");
@@ -20,7 +21,7 @@ internal static class WithdrawalScenario
 
     public static async Task<Guid> CreateAtmAsync(HttpClient client, CashLoad[] loads, CassetteConfiguration[]? configurations = null)
     {
-        var create = await client.PostAsJsonAsync("/api/atms", new { name = "Withdrawal test ATM" });
+        var create = await client.PostAsJsonAsync("/api/atms", new { name = "Integration test ATM" });
         create.EnsureSuccessStatusCode();
         var atm = (await create.Content.ReadFromJsonAsync<AtmView>(Json))!;
         configurations ??= [new(1, Currency.TRY, 100), new(2, Currency.TRY, 50), new(3, Currency.TRY, 20), new(4, Currency.USD, 100)];
@@ -53,6 +54,16 @@ internal static class WithdrawalScenario
 
     public static async Task<AtmView> InventoryAsync(HttpClient client, Guid id)
         => (await client.GetFromJsonAsync<AtmView>($"/api/atms/{id}", Json))!;
+
+    public static Task<HttpResponseMessage> RequestDepositAsync(HttpClient client, Guid atmId, NoteBatch[] notes, int unrecognizedCount = 0)
+        => client.PostAsJsonAsync($"/api/atms/{atmId}/deposits", new { notes, unrecognizedCount }, Json);
+
+    public static async Task<DepositView> DepositAsync(HttpClient client, Guid atmId, NoteBatch[] notes, int unrecognizedCount = 0)
+    {
+        using var response = await RequestDepositAsync(client, atmId, notes, unrecognizedCount);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<DepositView>(Json))!;
+    }
 
     public static async Task AssertProblemAsync(HttpResponseMessage response, HttpStatusCode status, string code)
     {

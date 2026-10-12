@@ -3,6 +3,7 @@ using AtmCash.Api.Background;
 using AtmCash.Api.Errors;
 using AtmCash.Api.Health;
 using AtmCash.Application.Atms;
+using AtmCash.Application.Deposits;
 using AtmCash.Application.Withdrawals;
 using AtmCash.Infrastructure.Persistence;
 using AtmCash.Infrastructure.Security;
@@ -18,6 +19,7 @@ var connectionString = builder.Configuration.GetConnectionString("CashDatabase")
 builder.Services.AddDbContext<CashDbContext>(options => options.UseNpgsql(connectionString));
 builder.Services.AddScoped<IAtmStore, PostgresAtmStore>();
 builder.Services.AddScoped<AtmService>();
+builder.Services.AddScoped<DepositService>();
 builder.Services.AddScoped<IWithdrawalStore, PostgresWithdrawalStore>();
 builder.Services.AddScoped<WithdrawalService>();
 builder.Services.AddSingleton<CassetteAllocator>();

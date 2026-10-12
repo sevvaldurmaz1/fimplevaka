@@ -18,14 +18,21 @@ public sealed class PostgresAtmStore(CashDbContext db) : IAtmStore
         => db.Atms.AsNoTracking().AsSingleQuery().Include(atm => atm.Cassettes).ThenInclude(cassette => cassette.Inventory)
             .SingleOrDefaultAsync(atm => atm.Id == id, cancellationToken);
 
-    public async Task<Atm> UpdateAsync(Guid id, Action<Atm> change, CancellationToken cancellationToken)
+    public Task<Atm> UpdateAsync(Guid id, Action<Atm> change, CancellationToken cancellationToken)
+        => UpdateAsync(id, atm =>
+        {
+            change(atm);
+            return atm;
+        }, cancellationToken);
+
+    public async Task<TResult> UpdateAsync<TResult>(Guid id, Func<Atm, TResult> change, CancellationToken cancellationToken)
     {
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         // Lock the aggregate root before loading inventory: serializes even different API instances.
         var atm = await AtmLock.LoadAsync(db, id, cancellationToken);
-        change(atm);
+        var result = change(atm);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return atm;
+        return result;
     }
 }
