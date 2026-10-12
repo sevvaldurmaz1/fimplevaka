@@ -1,24 +1,24 @@
 # Fimple ATM Cash Management
 
-Bu proje, ATM'lerin TRY, USD ve EUR cinsinden nakit yönetimini sağlayan bir REST
-API'dir. Para çekme, yatırma, banknot rezervasyonu, fiziksel sayım ile sistem
-kayıtlarının mutabakatı ve operasyon raporlarını kapsar. Fimple yazılım
-mühendisliği stajı vaka çalışması için geliştirilmiştir.
+This project is a REST API for managing ATM cash in TRY, USD, and EUR. It covers
+withdrawals, deposits, banknote reservations, reconciliation of physical counts
+with system records, and operational reports. It was developed for the Fimple
+software engineering internship case study.
 
-**Teknolojiler:** ASP.NET Core (.NET 10), Entity Framework Core, PostgreSQL ve Docker Compose.
+**Technologies:** ASP.NET Core (.NET 10), Entity Framework Core, PostgreSQL, and Docker Compose.
 
-**Son doğrulama — 12 Ekim 2026:** 82 birim ve 46 PostgreSQL entegrasyon testi
-olmak üzere **128 test geçti**. Docker üzerinde **21 adımlık uçtan uca akış**
-doğrulandı; derleme sıfır hata ve sıfır uyarıyla tamamlandı.
+**Latest verification — 12 October 2026:** **128 tests passed**, including 82 unit
+and 46 PostgreSQL integration tests. A **21-step end-to-end workflow** was verified
+in Docker, and the build completed with zero errors and zero warnings.
 
-Vakadaki Part A ve B1–B10 kapsamının hangi senaryolarla doğrulandığı
-[uygulama planında](docs/implementation-plan.md#gereksinim-ve-doğrulama-eşleştirmesi)
-yer alır. Teslim kapsamı backend'dir.
+The [implementation plan](docs/implementation-plan.md#gereksinim-ve-doğrulama-eşleştirmesi)
+maps Part A and B1–B10 requirements to their verification scenarios. The delivery
+scope is the backend. Supporting documents in `docs/` are in Turkish.
 
-## Projeyi ve testleri çalıştırma
+## Running the application and tests
 
-Gerekenler: Docker Engine/Desktop ve Compose; lokal geliştirme/test için .NET 10 SDK.
-`global.json` kararlı .NET 10 feature band'leri arasında geçişe izin verir.
+Requirements: Docker Engine/Desktop and Compose; .NET 10 SDK for local development
+and testing. `global.json` allows roll-forward across stable .NET 10 feature bands.
 
 ```sh
 docker compose up --build -d
@@ -26,18 +26,19 @@ docker compose up --build -d
 
 - Swagger: http://localhost:8080/swagger
 - OpenAPI: http://localhost:8080/swagger/v1/swagger.json
-- DB readiness: http://localhost:8080/health
+- Database readiness: http://localhost:8080/health
 - API liveness: http://localhost:8080/health/live
 
-Compose PostgreSQL hazır olduğunda API'yi başlatır. EF Core migration'ları API
-başlangıcında otomatik uygulanır; başarısız migration başlangıcı durdurur.
-Veriler `cash-data` volume'ünde tutulur; `docker compose down` verileri korur.
-Portlar localhost'a bağlanmıştır: API 8080, PostgreSQL 54329.
+Compose starts the API once PostgreSQL is ready. EF Core migrations are applied
+automatically at API startup; a migration failure stops startup. Data is stored
+in the `cash-data` volume and survives `docker compose down`.
+Ports are bound to localhost: API 8080 and PostgreSQL 54329.
 
-`.env.example` yerel örnek parola ve HMAC anahtarı içerir. Farklı değerler için
-`.env` oluşturun; bu dosya Git'e dahil edilmez. `CARD_HASH_KEY` Base64 biçiminde
-32 veya daha fazla byte olmalıdır. Aynı kartların restart sonrası tanınması için
-anahtarı koruyun. Örnek anahtar gerçek kullanım için uygun değildir.
+`.env.example` contains a sample local password and HMAC key. Create an `.env`
+file to use different values; this file is excluded from Git. `CARD_HASH_KEY`
+must be a Base64-encoded key of at least 32 bytes. Keep the key stable so the
+same cards remain identifiable after a restart. The sample key is intended
+for local development only.
 
 ```sh
 docker compose up -d db
@@ -45,99 +46,105 @@ dotnet restore
 dotnet run --project src/AtmCash.Api
 ```
 
-API container'ı çalışıyorsa lokal API ile port çakışmasını önlemek için önce
-`docker compose stop api` kullanın. Lokal Development ayarları örnek bağlantı ve
-anahtarı kullanır. Özelleştirirken `ConnectionStrings__CashDatabase` ve
-`Security__CardHashKey` ortam değişkenlerini sağlayın.
+If the API container is running, use `docker compose stop api` first to avoid
+a port conflict with the local API. Local Development settings use the sample
+connection and key. To customize them, provide the `ConnectionStrings__CashDatabase`
+and `Security__CardHashKey` environment variables.
 
 ```sh
 dotnet test tests/AtmCash.UnitTests
 docker compose up -d db
 dotnet test tests/AtmCash.IntegrationTests
-# Ya da DB çalışıyorken tüm testler:
+# Or run all tests while the database is running:
 dotnet test AtmCash.sln
 ```
 
-Entegrasyon testleri gerçek PostgreSQL üzerinde her test sınıfı için benzersiz bir
-veritabanı oluşturur, migration'ları uygular ve bitince yalnız kendi geçici
-veritabanını siler. PostgreSQL erişilemiyorsa testler başarısız olur; sessizce
-atlanmaz. `ATM_TEST_DATABASE` ile database oluşturma yetkili farklı bir bağlantı
-sağlanabilir. Özel Compose parolası kullanıyorsanız test bağlantısını da güncelleyin.
-HTTP testleri `WebApplicationFactory` kullanır. Test kapsamı ve sonuçlar
-[doğrulama bölümünde](#doğrulama), migration komutları
-[tasarım belgesinde](docs/design-decisions.md#migration-yönetimi) yer alır.
+Integration tests create a unique database for each test class on a real
+PostgreSQL instance, apply migrations, and delete only their own temporary
+database when finished. Tests fail if PostgreSQL is unavailable; they are not
+silently skipped. Set `ATM_TEST_DATABASE` to use a different connection with
+permission to create databases. Update the test connection if you use a custom
+Compose password. HTTP tests use `WebApplicationFactory`.
 
-## Mimari ve temel tasarım kararları
+Test coverage and results are described in the [verification section](#verification).
+Migration commands are available in the
+[design document](docs/design-decisions.md#migration-yönetimi).
+
+## Architecture and key design decisions
 
 ```text
 src/
-  AtmCash.Domain/          ATM, kaset, para, mutabakat ve düşük nakit kuralları
-  AtmCash.Application/     Kullanım senaryoları, DTO, algoritma ve kalıcılık sözleşmeleri
-  AtmCash.Infrastructure/  PostgreSQL/EF, migration, HMAC, outbox gönderimi
-  AtmCash.Api/             HTTP, doğrulama, ProblemDetails, hosted service, Swagger/health
+  AtmCash.Domain/          ATM, cassette, money, reconciliation, and low-cash rules
+  AtmCash.Application/     Use cases, DTOs, algorithms, and persistence contracts
+  AtmCash.Infrastructure/  PostgreSQL/EF, migrations, HMAC, and outbox dispatch
+  AtmCash.Api/             HTTP, validation, ProblemDetails, hosted services, Swagger/health
 tests/
-  AtmCash.UnitTests/       Domain, algoritma, HMAC ve eşik testleri
-  AtmCash.IntegrationTests/ Gerçek PostgreSQL, HTTP, eşzamanlılık ve rollback testleri
-postman/                  Tam uçtan uca ve daha küçük örnek akışlar
-docs/                     Gereksinim eşleştirmesi ve geliştirme kararları
+  AtmCash.UnitTests/       Domain, algorithm, HMAC, and threshold tests
+  AtmCash.IntegrationTests/ Real PostgreSQL, HTTP, concurrency, and rollback tests
+postman/                  Full end-to-end workflow and smaller examples
+docs/                     Requirements mapping and design decisions
 ```
 
-İş kuralları, HTTP ve veritabanı bağımlılığı olmayan Domain katmanında tutulur;
-böylece doğrudan birim testleriyle kontrol edilebilir. Application kullanım
-senaryolarını koordine eder, Infrastructure kalıcılığı sağlar. API bağımlılıkları
-birleştirir ve HTTP sözleşmesini yönetir. Kullanım senaryolarına özel kalıcılık
-sözleşmeleri, transaction ve kilit kapsamını görünür tutar.
+Business rules live in the Domain layer, which has no HTTP or database dependencies,
+so they can be tested directly with unit tests. Application coordinates use cases,
+Infrastructure provides persistence, and API wires dependencies and manages the
+HTTP contract. Use-case-specific persistence contracts keep transaction and lock
+boundaries explicit.
 
-- **Dinamik programlama:** Sınırlı stokta greedy seçimi geçerli bir kombinasyonu
-  kaçırabilir. Algoritma erişilebilir tutarlar için minimum banknot sayısını bulur;
-  tam tutar yoksa uygun alt ve üst alternatifleri sunar. Greedy'nin başarısız olduğu
-  durum dahil, sekiz B3 kabul senaryosu test edilmiştir.
-- **Veritabanı kilitleri:** Aynı banknotun iki çekime ayrılmasını ve farklı
-  ATM'lerden aynı kartın günlük limitinin aşılmasını engellemek için ATM ve kart
-  kilitleri kullanılır. Kilitler birden fazla API örneğinde de geçerlidir.
-- **Kalıcı idempotency:** Çekim onayı ile tekrar isteğini tanıyan kayıt aynı
-  transaction'da saklanır. Başarılı isteğin tekrarı aynı yanıtı döndürür ve nakdi
-  ikinci kez düşmez.
-- **Ledger ve outbox:** Stok değişikliği, değişmez hareket kaydı ve oluşan düşük
-  nakit olayı aynı transaction'da yazılır. İşlem geri alındığında bu kayıtlar da
-  geri alınır; bildirim gönderimi arka planda tekrar denenebilir.
-- **Gerçek PostgreSQL testleri:** Kilit, transaction ve paralel istek davranışları
-  kullanılan veritabanı üzerinde doğrulanır.
+- **Dynamic programming:** With limited stock, a greedy selection can miss a valid
+  combination. The algorithm finds the minimum number of banknotes for reachable
+  amounts and offers suitable lower and upper alternatives when the exact amount
+  cannot be dispensed. All eight B3 acceptance scenarios were tested, including
+  a case where greedy selection fails.
+- **Database locks:** ATM and card locks prevent the same banknotes from being
+  reserved for two withdrawals and stop concurrent requests at different ATMs
+  from exceeding a card's daily limit. These locks also work across multiple API instances.
+- **Persistent idempotency:** Withdrawal confirmation and the record identifying
+  repeated requests are stored in the same transaction. Repeating a successful
+  request returns the same response without deducting cash again.
+- **Ledger and outbox:** Stock changes, immutable movement records, and any resulting
+  low-cash event are written in the same transaction. A rollback also rolls back
+  these records; notification dispatch can be retried in the background.
+- **Real PostgreSQL tests:** Locking, transactions, and parallel requests are verified
+  against the database used by the application.
 
-Algoritma örneği, kilit sırası, günlük limit, mutabakat ve outbox teslim garantisinin
-ayrıntıları [teknik tasarım kararlarında](docs/design-decisions.md) yer alır.
+The algorithm example, lock order, daily limits, reconciliation, and outbox delivery
+semantics are explained in the [technical design decisions](docs/design-decisions.md).
 
-## API ve Postman
+## API and Postman
 
-| İstek | Görev |
+| Request | Purpose |
 | --- | --- |
-| POST /api/atms | ATM oluştur |
-| GET /api/atms/{id} | Stok/durum oku |
-| PUT /api/atms/{id}/configuration | Dört recycling kasetini yapılandır |
-| POST /api/atms/{id}/loads veya /unloads | Elle nakit ekle/çıkar |
-| PUT /api/atms/{id}/state | Hizmet/bakım geçişi |
-| POST /api/atms/{id}/withdrawals/quotes | Teklif ve rezervasyon |
-| GET veya DELETE /api/atms/{id}/withdrawals/quotes/{quoteId} | Oku/iptal et |
-| POST /api/atms/{id}/withdrawals/quotes/{quoteId}/confirm | Tutarı onayla; Idempotency-Key zorunlu |
-| POST /api/atms/{id}/deposits | Banknot dağılımı, taşma ve iadeler |
-| POST /api/atms/{id}/reconciliations | Beş kaset sayımı; X-User zorunlu |
-| GET /api/atms/{id}/reconciliations/{reconciliationId} | Audit/sayım/farklar |
-| POST /api/atms/{id}/reconciliations/{reconciliationId}/approve | Farklı X-User ile onay |
-| GET /api/atms/{id}/consistency | Ledger/stok farkları |
-| GET /api/atms/{id}/report | ATM raporu |
-| GET /api/reports/operations | Ağ raporu |
+| POST /api/atms | Create an ATM |
+| GET /api/atms/{id} | Read inventory and state |
+| PUT /api/atms/{id}/configuration | Configure the four recycling cassettes |
+| POST /api/atms/{id}/loads or /unloads | Manually add or remove cash |
+| PUT /api/atms/{id}/state | Transition between service and maintenance |
+| POST /api/atms/{id}/withdrawals/quotes | Create a quote and reserve banknotes |
+| GET or DELETE /api/atms/{id}/withdrawals/quotes/{quoteId} | Read or cancel a quote |
+| POST /api/atms/{id}/withdrawals/quotes/{quoteId}/confirm | Confirm an amount; Idempotency-Key is required |
+| POST /api/atms/{id}/deposits | Allocate banknotes, handle overflow, and return unaccepted notes |
+| POST /api/atms/{id}/reconciliations | Submit counts for all five cassettes; X-User is required |
+| GET /api/atms/{id}/reconciliations/{reconciliationId} | Read the audit record, counts, and differences |
+| POST /api/atms/{id}/reconciliations/{reconciliationId}/approve | Approve with a different X-User |
+| GET /api/atms/{id}/consistency | Check ledger and inventory differences |
+| GET /api/atms/{id}/report | Read the ATM report |
+| GET /api/reports/operations | Read the network report |
 
-[Uçtan uca Postman koleksiyonu](postman/atm-cash-flow.postman_collection.json)
-tam teslim senaryosudur: oluştur → yapılandır → yükle → hizmete al → çekim teklifi
-→ onay → yatırma → bakım → mutabakat → farklı kullanıcı onayı → tutarlılık kontrolü
-→ rapor → hizmete dönüş.
-21 adım aynı zamanda onay tekrarı, iptal, taşma/iade, aynı kullanıcı reddi ve
-onay beklerken hizmete dönüşün reddini kontrol eder. Runner ile sırayla çalıştırın.
-`baseUrl` varsayılan localhost:8080'dır; atmId, quoteId, reconciliationId ve
-her çalıştırmaya özel idempotencyKey otomatik atanır. Confirm 60 saniye içinde yapılır.
-`atm-setup` ve `atm-withdrawals` koleksiyonları daha küçük örneklerdir.
+The [end-to-end Postman collection](postman/atm-cash-flow.postman_collection.json)
+covers the full delivery workflow: create → configure → load → enter service →
+withdrawal quote → confirm → deposit → maintenance → reconcile → approval by a
+different user → consistency check → report → return to service.
 
-Yatırma isteği:
+Its 21 steps also check confirmation replay, cancellation, overflow and returned
+banknotes, rejection of approval by the submitting user, and rejection of a return
+to service while approval is pending. Run the requests sequentially with the Runner.
+`baseUrl` defaults to localhost:8080; `atmId`, `quoteId`, `reconciliationId`, and
+an `idempotencyKey` unique to each run are assigned automatically. Confirm the
+withdrawal within 60 seconds. The `atm-setup` and `atm-withdrawals` collections
+provide smaller examples.
+
+Deposit request:
 
 ```json
 {
@@ -146,63 +153,74 @@ Yatırma isteği:
 }
 ```
 
-Mutabakatta `cassettes` beş eleman içerir; her eleman `number` ve para birimi/kupür/
-`count` içeren `notes` dizisidir. Boş `notes` dizisi boş kaset demektir. Karışık
-kaset bütün sayılan banknot türlerini içerir. Tam örnekler Swagger ve koleksiyondadır.
+For reconciliation, `cassettes` contains five entries. Each entry has a `number`
+and a `notes` array containing currency, denomination, and `count`. An empty
+`notes` array represents an empty cassette. A mixed cassette includes all counted
+banknote types. Complete examples are available in Swagger and the collection.
 
-## Varsayımlar
+## Assumptions
 
-- Kaset numaraları sabit: 1–4 recycling, 5 deposit-only; kapasiteleri 100 banknottur.
-- İsimler benzersiz olmak zorunda değildir; ATM kimliği GUID'dir.
-- İlk nakit yüklemesinde en az bir banknot gerekir; mutabakat başlangıç yüklemesini
-  atlama yolu değildir. LOADED durumunda sonraki adım IN_SERVICE'dir.
-- Aktif rezervasyon varken bakıma geçilmez. Banknot içeren kasetin kupürü/
-  para birimi ancak boşaltıldıktan sonra değiştirilebilir.
-- Kalan limiti aşan çekim isteği reddedilir. Sıfır alt alternatif sunulmaz.
-- Kart girişi boşluksuz 13–19 ASCII rakamdır; Luhn kontrolü istenmemiştir.
-- Banknot sayıları ve tutarlar tam sayıdır; TRY dönüşümü decimal kullanır. Başlangıç kurları
-  TRY=1, USD=35, EUR=40 örnek değerlerdir, canlı piyasa kuru değildir. Kurlar
-  ExchangeRates tablosunda tutulur; mutabakat geçmişi sonradan kur değişiminden etkilenmez.
-- Yatırmada tekrarlanan türler birleştirilir; ortak deposit kapasitesinde grupların
-  ilk görülme sırası kullanılır. 60 giriş grubu sınırı vardır; sığmayan büyük
-  sayılar long toplamlarla döner. Yanıt seri numarası yerine kaset bazında sayılar verir.
-- Tanınmayan ve iade edilen banknotlar stok veya ledger'a girmez. Yalnız tanınmayan banknot
-  içeren istek kabul edilir, tamamen boş istek reddedilir.
-- Confirm dışındaki POST'lar tekrar gönderilirse yeni işlemdir. İptal tekrarlanabilir.
-- X-User trim edilir ve onayda harf duyarsız karşılaştırılır; kimlik doğrulama istenmemiştir.
-- Mutabakat eşiği net fark yerine mutlak fark toplamıdır. Yüksek fark onaydan
-  sonra uygulanır. Onaylanmış mutabakat tekrar onaylanamaz.
+- Cassette numbers are fixed: 1–4 are recycling and 5 is deposit-only; each holds 100 banknotes.
+- Names do not have to be unique; ATM identifiers are GUIDs.
+- The initial cash load requires at least one banknote. Reconciliation cannot
+  bypass the initial load. The next state after LOADED is IN_SERVICE.
+- Maintenance cannot start while reservations are active. A cassette's currency
+  or denomination can change only after it has been emptied.
+- Requests exceeding the remaining daily withdrawal limit are rejected.
+  A zero-valued lower alternative is not offered.
+- Card input is 13–19 ASCII digits without spaces; Luhn validation was not required.
+- Banknote counts and amounts are integers; TRY conversion uses `decimal`.
+  Initial exchange rates TRY=1, USD=35, and EUR=40 are sample values, not live market
+  rates. Rates are stored in the ExchangeRates table; later rate changes do not
+  affect reconciliation history.
+- Duplicate banknote types in a deposit are combined. Groups use their first
+  occurrence order when sharing deposit-cassette capacity. A request may contain
+  up to 60 groups; large returned counts use `long` totals. Responses report
+  cassette-level counts rather than banknote serial numbers.
+- Unrecognized and returned banknotes do not enter inventory or the ledger.
+  Requests containing only unrecognized banknotes are accepted; completely empty
+  requests are rejected.
+- Withdrawal confirmation provides idempotency-key handling. Repeated deposits,
+  loads, unloads, or reconciliation submissions are new requests. Cancellation can be repeated.
+- X-User values are trimmed and compared case-insensitively for approval;
+  authentication was not required by the case study.
+- The reconciliation threshold uses the sum of absolute differences converted
+  to TRY, rather than the net difference. Differences above the threshold are
+  applied after approval. An applied reconciliation cannot be approved again.
 
-## Bitmemiş işler ve bilinen sınırlamalar
+## Completion status and known limitations
 
-Vakadaki Part A ve B1–B10 geliştirmeleri tamamlandı; kapsam ve doğrulama
-[gereksinim eşleştirmesinde](docs/implementation-plan.md#gereksinim-ve-doğrulama-eşleştirmesi)
-yer alır. Üretim kapsamına ait kimlik doğrulama ve kart sahipliği kontrolü, gerçek
-donanım ve müşteri hesap entegrasyonu, canlı kur servisi, anahtar rotasyonu ve ağ
-raporunda sayfalama uygulanmadı. Bunlar vaka için talep edilmedi.
+Part A and B1–B10 are complete; scope and verification are documented in the
+[requirements mapping](docs/implementation-plan.md#gereksinim-ve-doğrulama-eşleştirmesi).
+Production features such as authentication and card ownership checks, physical
+hardware and customer account integration, live exchange rates, key rotation,
+and pagination for the network report are not implemented. They were not
+required by the case study.
 
-Outbox log teslimi en az bir kezdir; log yazımı ile `SentAt` commit'i arasındaki
-çökmede aynı olay yeniden loglanabilir. Denetim ve ledger kayıtları silinmez;
-saklama süresi ve arşivleme politikası eklenmedi. Yatırma yanıtı kabul hareketlerini
-ilişkilendirir, ayrı yatırma geçmişi endpoint'i bulunmaz.
+Outbox logging uses at-least-once delivery semantics: a crash between logging
+and committing `SentAt` can cause the same event to be logged again. Audit and
+ledger records are retained; retention and archival policies have not been added.
+Deposit responses reference accepted movements, but there is no separate deposit
+history endpoint.
 
-## Doğrulama
+## Verification
 
-12 Ekim 2026: 82 birim ve 46 gerçek PostgreSQL entegrasyon testi geçti, atlanan test
-olmadı. B3'teki sekiz kabul testi; iki API örneğiyle quote/yatırma; farklı ATM'lerde
-kart limiti; idempotency; expiry/gece yarısı; mutabakat/onay; UNLOAD; rapor/ledger;
-outbox rollback, retry ve iki dispatcher senaryoları dahildir. Migration/model
-uyumu kontrol edildi. Docker üzerindeki 21 adımlık koleksiyon akışı geçti:
-setup, çekim/onay tekrarı, yatırma/iadeler, iptal, bakım, farklı kullanıcıyla
-mutabakat onayı, ledger tutarlılığı ve operasyon raporu doğrulandı. Beklenen
-409 yanıtları da kontrol edildi. Swagger ve health HTTP 200 döndü; derleme
-sıfır uyarı ve sıfır hatayla tamamlandı. Docker'da düşük nakit olayı outbox'a
-yazıldı ve arka plan servisi tarafından işlendi (`SentAt` dolu).
+On 12 October 2026, all 82 unit and 46 real PostgreSQL integration tests passed,
+with no skipped tests. Coverage includes the eight B3 acceptance scenarios,
+concurrent quotes and deposits across two API instances, card limits across
+multiple ATMs, idempotency, expiry and midnight transitions, reconciliation and
+approval, unloading, reports and ledger consistency, and outbox rollback, retry,
+and parallel dispatchers.
 
-## AI kullanımı
+Migration and model consistency were checked. The 21-step collection workflow
+passed against the API running in Docker, including setup, withdrawal confirmation
+replay, deposits and returned banknotes, cancellation, maintenance, reconciliation
+approval by a different user, ledger consistency, and operational reporting.
+Expected HTTP 409 responses were also checked. Swagger and health returned
+HTTP 200, and the build completed with zero warnings and zero errors.
+A low-cash event was written to the outbox and processed by the background
+service in Docker, with `SentAt` populated.
 
-OpenAI Codex gereksinim analizi, tasarım, uygulama, test ve dokümantasyon
-geliştirmesinde kullanıldı. Üretilen uygulama derleme, birim testleri, gerçek
-PostgreSQL entegrasyon testleri ve Docker üzerindeki uçtan uca akışla doğrulandı.
-Eşzamanlılık, idempotency, zaman hassasiyeti ve işlem geri alma gibi kritik
-davranışlar testlerle kontrol edildi.
+## AI usage
+
+OpenAI Codex was used to support requirements analysis, code development, debugging, testing, and documentation throughout the project. The application was validated through build checks, unit tests, PostgreSQL integration tests, and end-to-end scenarios in a Docker environment. Additionally, critical behaviors such as concurrency, idempotency, time-sensitive operations, and transaction rollback were tested to ensure system reliability and data consistency.
