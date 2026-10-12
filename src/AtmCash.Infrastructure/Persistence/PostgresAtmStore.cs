@@ -1,0 +1,31 @@
+using AtmCash.Application.Atms;
+using AtmCash.Domain.Atms;
+using Microsoft.EntityFrameworkCore;
+
+namespace AtmCash.Infrastructure.Persistence;
+
+public sealed class PostgresAtmStore(CashDbContext db) : IAtmStore
+{
+    public async Task AddAsync(Atm atm, CancellationToken cancellationToken)
+    {
+        db.Atms.Add(atm);
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    public Task<Atm?> FindAsync(Guid id, CancellationToken cancellationToken)
+        // Five cassettes and twelve supported note types keep this result bounded;
+        // a single statement also reads a consistent inventory snapshot.
+        => db.Atms.AsNoTracking().AsSingleQuery().Include(atm => atm.Cassettes).ThenInclude(cassette => cassette.Inventory)
+            .SingleOrDefaultAsync(atm => atm.Id == id, cancellationToken);
+
+    public async Task<Atm> UpdateAsync(Guid id, Action<Atm> change, CancellationToken cancellationToken)
+    {
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // Lock the aggregate root before loading inventory: serializes even different API instances.
+        var atm = await AtmLock.LoadAsync(db, id, cancellationToken);
+        change(atm);
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return atm;
+    }
+}

@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: atm_cash
+      POSTGRES_USER: atm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atm_local_only}
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - cash-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atm -d atm_cash"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  api:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ASPNETCORE_HTTP_PORTS: "8080"
+      Security__CardHashKey: ${CARD_HASH_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}
+      ConnectionStrings__CashDatabase: "Host=db;Database=atm_cash;Username=atm;Password=${POSTGRES_PASSWORD:-atm_local_only}"
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  cash-data:

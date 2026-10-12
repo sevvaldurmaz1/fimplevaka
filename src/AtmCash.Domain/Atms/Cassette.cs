@@ -1,0 +1,101 @@
+using AtmCash.Domain.Cash;
+using AtmCash.Domain.Common;
+using AtmCash.Domain.Ledger;
+
+namespace AtmCash.Domain.Atms;
+
+public sealed class Cassette
+{
+    public const int Capacity = 100;
+    private readonly List<CassetteInventory> _inventory = [];
+    private readonly List<CassetteMovement> _movements = [];
+
+    private Cassette() { }
+
+    internal Cassette(Guid atmId, int number, CassetteType type)
+    {
+        Id = Guid.NewGuid();
+        AtmId = atmId;
+        Number = number;
+        Type = type;
+    }
+
+    public Guid Id { get; private set; }
+    public Guid AtmId { get; private set; }
+    public int Number { get; private set; }
+    public CassetteType Type { get; private set; }
+    public Currency? Currency { get; private set; }
+    public int? Denomination { get; private set; }
+    public IReadOnlyCollection<CassetteInventory> Inventory => _inventory.AsReadOnly();
+    public IReadOnlyCollection<CassetteMovement> Movements => _movements.AsReadOnly();
+    public int NoteCount => _inventory.Sum(item => item.NoteCount);
+    public int ReservedCount => _inventory.Sum(item => item.ReservedCount);
+
+    internal void ValidateConfiguration(Currency currency, int denomination)
+    {
+        Banknotes.Validate(currency, denomination);
+        if (Type != CassetteType.Recycling)
+            throw new DomainException("deposit_cassette_configuration", "The deposit cassette accepts all supported notes.");
+        if (NoteCount > 0 && (Currency != currency || Denomination != denomination))
+            throw new DomainException("cassette_not_empty", "Empty the cassette before changing its configuration.");
+    }
+
+    internal void Configure(Currency currency, int denomination)
+    {
+        Currency = currency;
+        Denomination = denomination;
+    }
+
+    internal void ValidateLoad(Currency currency, int denomination, int count)
+    {
+        Banknotes.Validate(currency, denomination);
+        if (count <= 0)
+            throw new DomainException("invalid_note_count", "Note counts must be positive.");
+        if (Type == CassetteType.Recycling && (Currency != currency || Denomination != denomination))
+            throw new DomainException("cassette_note_mismatch", "The notes do not match the recycling cassette configuration.");
+    }
+
+    internal void Load(Currency currency, int denomination, int count, DateTimeOffset now)
+    {
+        var inventory = _inventory.SingleOrDefault(item => item.Currency == currency && item.Denomination == denomination);
+        if (inventory is null)
+        {
+            inventory = new CassetteInventory(Id, currency, denomination);
+            _inventory.Add(inventory);
+        }
+        inventory.AddNotes(count);
+        _movements.Add(new CassetteMovement(Id, currency, denomination, MovementType.LOAD, count, 0, now));
+    }
+
+    internal void ValidateWithdrawalNotes(Currency currency, int denomination, int count, bool requireReserved)
+    {
+        ValidateLoad(currency, denomination, count);
+        if (Type != CassetteType.Recycling)
+            throw new DomainException("deposit_cassette_withdrawal", "Notes cannot be dispensed from the deposit cassette.");
+        var inventory = FindInventory(currency, denomination);
+        if (count > (requireReserved ? inventory.ReservedCount : inventory.AvailableCount))
+            throw new DomainException("insufficient_available_notes", "The cassette does not contain enough available or reserved notes.");
+    }
+
+    internal void Reserve(Currency currency, int denomination, int count, DateTimeOffset now, Guid quoteId)
+    {
+        FindInventory(currency, denomination).Reserve(count);
+        _movements.Add(new CassetteMovement(Id, currency, denomination, MovementType.RESERVATION, 0, count, now, quoteId));
+    }
+
+    internal void Release(Currency currency, int denomination, int count, DateTimeOffset now, Guid quoteId)
+    {
+        FindInventory(currency, denomination).Release(count);
+        _movements.Add(new CassetteMovement(Id, currency, denomination, MovementType.RESERVATION_RELEASE, 0, -count, now, quoteId));
+    }
+
+    internal void Dispense(Currency currency, int denomination, int count, DateTimeOffset now, Guid quoteId)
+    {
+        FindInventory(currency, denomination).RemoveNotes(count);
+        _movements.Add(new CassetteMovement(Id, currency, denomination, MovementType.WITHDRAWAL, -count, 0, now, quoteId));
+    }
+
+    private CassetteInventory FindInventory(Currency currency, int denomination)
+        => _inventory.SingleOrDefault(item => item.Currency == currency && item.Denomination == denomination)
+            ?? throw new DomainException("insufficient_available_notes", "The cassette has no matching notes.");
+}

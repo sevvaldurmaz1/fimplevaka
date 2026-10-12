@@ -1,0 +1,210 @@
+{
+  "info": {
+    "name": "ATM Cash - Initial setup",
+    "description": "First implementation stage only. Full quote/deposit/reconciliation scenario is pending.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "atmId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Create ATM",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Fimple Demo ATM\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(201));",
+              "pm.collectionVariables.set(\"atmId\", pm.response.json().id);",
+              "pm.test(\"Expected state\", () => pm.expect(pm.response.json().state).to.eql(\"UNCONFIGURED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Configure cassettes",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/configuration",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"cassettes\": [\n    {\n      \"number\": 1,\n      \"currency\": \"TRY\",\n      \"denomination\": 100\n    },\n    {\n      \"number\": 2,\n      \"currency\": \"TRY\",\n      \"denomination\": 50\n    },\n    {\n      \"number\": 3,\n      \"currency\": \"TRY\",\n      \"denomination\": 20\n    },\n    {\n      \"number\": 4,\n      \"currency\": \"USD\",\n      \"denomination\": 100\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Expected state\", () => pm.expect(pm.response.json().state).to.eql(\"CONFIGURED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Load cash",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/loads",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"notes\": [\n    {\n      \"cassetteNumber\": 1,\n      \"currency\": \"TRY\",\n      \"denomination\": 100,\n      \"count\": 10\n    },\n    {\n      \"cassetteNumber\": 2,\n      \"currency\": \"TRY\",\n      \"denomination\": 50,\n      \"count\": 20\n    },\n    {\n      \"cassetteNumber\": 3,\n      \"currency\": \"TRY\",\n      \"denomination\": 20,\n      \"count\": 30\n    },\n    {\n      \"cassetteNumber\": 4,\n      \"currency\": \"USD\",\n      \"denomination\": 100,\n      \"count\": 5\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Expected state\", () => pm.expect(pm.response.json().state).to.eql(\"LOADED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Put in service",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/state",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"state\": \"IN_SERVICE\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Expected state\", () => pm.expect(pm.response.json().state).to.eql(\"IN_SERVICE\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Read inventory",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Expected state\", () => pm.expect(pm.response.json().state).to.eql(\"IN_SERVICE\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Switch to maintenance",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/state",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"state\": \"MAINTENANCE\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Expected state\", () => pm.expect(pm.response.json().state).to.eql(\"MAINTENANCE\"));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

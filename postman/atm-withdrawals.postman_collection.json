@@ -1,0 +1,410 @@
+{
+  "info": {
+    "name": "ATM Cash - Setup and withdrawals",
+    "description": "Setup, quote, confirm, idempotent replay, inventory, cancellation and maintenance. Deposit/reconciliation/report delivery scenario is pending.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "atmId",
+      "value": ""
+    },
+    {
+      "key": "quoteId",
+      "value": ""
+    },
+    {
+      "key": "idempotencyKey",
+      "value": ""
+    },
+    {
+      "key": "confirmationResult",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Create ATM",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Fimple Demo ATM\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(201));",
+              "pm.collectionVariables.set(\"atmId\", pm.response.json().id);",
+              "pm.test(\"Expected state\", () => pm.expect(pm.response.json().state).to.eql(\"UNCONFIGURED\"));",
+              "pm.collectionVariables.set(\"idempotencyKey\", pm.variables.replaceIn(\"{{$guid}}\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Configure cassettes",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/configuration",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"cassettes\": [\n    {\n      \"number\": 1,\n      \"currency\": \"TRY\",\n      \"denomination\": 100\n    },\n    {\n      \"number\": 2,\n      \"currency\": \"TRY\",\n      \"denomination\": 50\n    },\n    {\n      \"number\": 3,\n      \"currency\": \"TRY\",\n      \"denomination\": 20\n    },\n    {\n      \"number\": 4,\n      \"currency\": \"USD\",\n      \"denomination\": 100\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Expected state\", () => pm.expect(pm.response.json().state).to.eql(\"CONFIGURED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Load cash",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/loads",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"notes\": [\n    {\n      \"cassetteNumber\": 1,\n      \"currency\": \"TRY\",\n      \"denomination\": 100,\n      \"count\": 10\n    },\n    {\n      \"cassetteNumber\": 2,\n      \"currency\": \"TRY\",\n      \"denomination\": 50,\n      \"count\": 20\n    },\n    {\n      \"cassetteNumber\": 3,\n      \"currency\": \"TRY\",\n      \"denomination\": 20,\n      \"count\": 30\n    },\n    {\n      \"cassetteNumber\": 4,\n      \"currency\": \"USD\",\n      \"denomination\": 100,\n      \"count\": 5\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Expected state\", () => pm.expect(pm.response.json().state).to.eql(\"LOADED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Put in service",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/state",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"state\": \"IN_SERVICE\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Expected state\", () => pm.expect(pm.response.json().state).to.eql(\"IN_SERVICE\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Quote 160 TRY",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/withdrawals/quotes",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"cardNumber\": \"4000000000000001\",\n  \"currency\": \"TRY\",\n  \"amount\": 160\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(201));",
+              "pm.collectionVariables.set(\"quoteId\", pm.response.json().id);",
+              "pm.test(\"Exact offer\", () => pm.expect(pm.response.json().options[0].amount).to.eql(160));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Confirm quote",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/withdrawals/quotes/{{quoteId}}/confirm",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 160\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.collectionVariables.set(\"confirmationResult\", pm.response.text());",
+              "pm.test(\"Confirmed amount\", () => pm.expect(pm.response.json().amount).to.eql(160));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Repeat same confirmation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/withdrawals/quotes/{{quoteId}}/confirm",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"amount\": 160\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Identical persisted result\", () => pm.expect(pm.response.text()).to.eql(pm.collectionVariables.get(\"confirmationResult\")));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Read inventory",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Only four notes debited\", () => pm.expect(pm.response.json().cassettes.reduce((sum, c) => sum + c.noteCount, 0)).to.eql(61));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Quote 20 TRY",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/withdrawals/quotes",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"cardNumber\": \"4000000000000001\",\n  \"currency\": \"TRY\",\n  \"amount\": 20\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(201));",
+              "pm.collectionVariables.set(\"quoteId\", pm.response.json().id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Cancel quote",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/withdrawals/quotes/{{quoteId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Cancelled\", () => pm.expect(pm.response.json().status).to.eql(\"CANCELLED\"));",
+              "pm.test(\"No amount remains reserved\", () => pm.expect(pm.response.json().reservedAmount).to.eql(0));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Repeat cancellation",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/withdrawals/quotes/{{quoteId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Still cancelled\", () => pm.expect(pm.response.json().status).to.eql(\"CANCELLED\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. Switch to maintenance",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/state",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"state\": \"MAINTENANCE\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Maintenance\", () => pm.expect(pm.response.json().state).to.eql(\"MAINTENANCE\"));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
