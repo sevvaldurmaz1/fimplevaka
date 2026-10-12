@@ -1,6 +1,6 @@
 # Fimple ATM Cash Management
 
-Fimple uzun dönem yazılım mühendisliği stajı vaka çalışması için ASP.NET Core REST backend.
+Fimple yazılım mühendisliği stajı vaka çalışması için ASP.NET Core REST backend.
 Part A ve B1–B10 uygulanmıştır. Arayüz kapsam dışında bırakılmıştır.
 
 ## Projeyi ve testleri çalıştırma
