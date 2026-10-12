@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using AtmCash.Application.Withdrawals;
+using AtmCash.Application.Common;
 using AtmCash.Domain.Atms;
 using AtmCash.Domain.Cash;
 using AtmCash.Domain.Withdrawals;
@@ -9,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AtmCash.Infrastructure.Persistence;
 
-public sealed class PostgresWithdrawalStore(CashDbContext db) : IWithdrawalStore
+public sealed class PostgresWithdrawalStore(CashDbContext db, TimeProvider clock) : IWithdrawalStore
 {
     public Task<QuoteIdentity?> FindIdentityAsync(Guid atmId, Guid quoteId, CancellationToken cancellationToken)
         => db.Quotes.AsNoTracking().Where(quote => quote.Id == quoteId && quote.AtmId == atmId)
@@ -31,6 +32,7 @@ public sealed class PostgresWithdrawalStore(CashDbContext db) : IWithdrawalStore
             await AdvisoryLockAsync("card:" + locks.CardHash, cancellationToken);
         var atm = await AtmLock.LoadAsync(db, locks.AtmId, cancellationToken);
         var result = await operation(new Session(db, atm), cancellationToken);
+        db.CaptureLowCashAlerts(atm, clock.GetOperationTime());
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return result;

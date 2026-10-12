@@ -6,7 +6,7 @@ namespace AtmCash.Application.Atms;
 public sealed record InventoryView(Currency Currency, int Denomination, int NoteCount, int ReservedCount, int AvailableCount);
 public sealed record CassetteView(Guid Id, int Number, CassetteType Type, Currency? Currency,
     int? Denomination, int Capacity, int NoteCount, IReadOnlyList<InventoryView> Inventory);
-public sealed record AtmView(Guid Id, string Name, AtmState State, IReadOnlyList<CassetteView> Cassettes);
+public sealed record AtmView(Guid Id, string Name, AtmState State, IReadOnlyList<CassetteView> Cassettes, Guid? PendingReconciliationId = null);
 
 public static class AtmMapping
 {
@@ -16,5 +16,5 @@ public static class AtmMapping
             Cassette.Capacity, cassette.NoteCount,
             cassette.Inventory.OrderBy(item => item.Currency).ThenByDescending(item => item.Denomination)
                 .Select(item => new InventoryView(item.Currency, item.Denomination,
-                    item.NoteCount, item.ReservedCount, item.AvailableCount)).ToArray())).ToArray());
+                    item.NoteCount, item.ReservedCount, item.AvailableCount)).ToArray())).ToArray(), atm.PendingReconciliationId);
 }

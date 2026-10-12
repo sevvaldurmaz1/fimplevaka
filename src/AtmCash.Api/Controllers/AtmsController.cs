@@ -45,4 +45,9 @@ public sealed class AtmsController(AtmService service) : ControllerBase
     [ProducesResponseType<AtmView>(StatusCodes.Status200OK)]
     public async Task<ActionResult<AtmView>> ChangeState(Guid id, ChangeStateRequest request, CancellationToken cancellationToken)
         => Ok(await service.ChangeStateAsync(id, request.State!.Value, cancellationToken));
+
+    [HttpPost("{id:guid}/unloads")]
+    [ProducesResponseType<AtmView>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<AtmView>> Unload(Guid id, LoadCashRequest request, CancellationToken cancellationToken)
+        => Ok(await service.UnloadAsync(id, request.Notes, cancellationToken));
 }

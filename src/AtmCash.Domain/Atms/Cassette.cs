@@ -1,6 +1,7 @@
 using AtmCash.Domain.Cash;
 using AtmCash.Domain.Common;
 using AtmCash.Domain.Ledger;
+using AtmCash.Domain.Alerts;
 
 namespace AtmCash.Domain.Atms;
 
@@ -30,6 +31,7 @@ public sealed class Cassette
     public IReadOnlyCollection<CassetteMovement> Movements => _movements.AsReadOnly();
     public int NoteCount => _inventory.Sum(item => item.NoteCount);
     public int ReservedCount => _inventory.Sum(item => item.ReservedCount);
+    public bool LowCashAlertActive { get; private set; }
 
     internal void ValidateConfiguration(Currency currency, int denomination)
     {
@@ -42,6 +44,7 @@ public sealed class Cassette
 
     internal void Configure(Currency currency, int denomination)
     {
+        if (Currency != currency || Denomination != denomination) LowCashAlertActive = false;
         Currency = currency;
         Denomination = denomination;
     }
@@ -105,6 +108,57 @@ public sealed class Cassette
     {
         FindInventory(currency, denomination).RemoveNotes(count);
         _movements.Add(new CassetteMovement(Id, currency, denomination, MovementType.WITHDRAWAL, -count, 0, now, quoteId));
+    }
+
+    internal void ValidateUnload(Currency currency, int denomination, int count)
+    {
+        Banknotes.Validate(currency, denomination);
+        if (count <= 0 || count > FindInventory(currency, denomination).AvailableCount)
+            throw new DomainException("insufficient_available_notes", "Unload a positive number of available notes.");
+    }
+
+    internal void Unload(Currency currency, int denomination, int count, DateTimeOffset now)
+    {
+        FindInventory(currency, denomination).RemoveNotes(count);
+        _movements.Add(new CassetteMovement(Id, currency, denomination, MovementType.UNLOAD, -count, 0, now));
+    }
+
+    internal void ValidateCount(IReadOnlyCollection<NoteBatch> notes)
+    {
+        if (notes.Count > 12 || notes.Any(note => note is null)
+            || notes.Select(note => (note.Currency, note.Denomination)).Distinct().Count() != notes.Count)
+            throw new DomainException("invalid_reconciliation_counts", "Count each supported banknote type at most once per cassette.");
+        foreach (var note in notes)
+        {
+            Banknotes.Validate(note.Currency, note.Denomination);
+            if (note.Count < 0)
+                throw new DomainException("invalid_note_count", "Physical counts cannot be negative.");
+            if (note.Count > 0 && Type == CassetteType.Recycling && (Currency != note.Currency || Denomination != note.Denomination))
+                throw new DomainException("cassette_note_mismatch", "Counted notes must match the recycling cassette configuration.");
+        }
+        if (notes.Sum(note => (long)note.Count) > Capacity)
+            throw new DomainException("cassette_capacity_exceeded", "A physical cassette cannot contain more than 100 notes.");
+    }
+
+    internal void Adjust(Currency currency, int denomination, int delta, DateTimeOffset now, Guid reconciliationId)
+    {
+        if (delta > 0)
+            AddNotes(currency, denomination, delta, MovementType.RECONCILIATION_ADJUSTMENT, now, reconciliationId);
+        else
+        {
+            FindInventory(currency, denomination).RemoveNotes(-delta);
+            _movements.Add(new CassetteMovement(Id, currency, denomination, MovementType.RECONCILIATION_ADJUSTMENT, delta, 0, now, reconciliationId));
+        }
+    }
+
+    internal LowCashAlert? RefreshLowCashAlert(DateTimeOffset now)
+    {
+        if (Type != CassetteType.Recycling || Currency is null || Denomination is null) return null;
+        var available = NoteCount - ReservedCount;
+        if (available >= Capacity / 10) { LowCashAlertActive = false; return null; }
+        if (LowCashAlertActive) return null;
+        LowCashAlertActive = true;
+        return new LowCashAlert(AtmId, Id, Number, Currency.Value, Denomination.Value, available, now);
     }
 
     private CassetteInventory FindInventory(Currency currency, int denomination)

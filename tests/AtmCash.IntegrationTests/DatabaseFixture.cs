@@ -44,6 +44,7 @@ public sealed class DatabaseFixture : IAsyncLifetime
                 .UseSetting("ConnectionStrings:CashDatabase", connectionString)
                 .UseSetting("Security:CardHashKey", "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
                 .UseSetting("Reservations:EnableExpirationWorker", "false")
+                .UseSetting("Outbox:EnableDispatcher", "false")
                 .ConfigureServices(services =>
                 {
                     services.RemoveAll<TimeProvider>();

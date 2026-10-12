@@ -24,4 +24,7 @@ public sealed class AtmService(IAtmStore store, TimeProvider clock)
 
     public async Task<AtmView> ChangeStateAsync(Guid id, AtmState target, CancellationToken cancellationToken)
         => (await store.UpdateAsync(id, atm => atm.ChangeState(target), cancellationToken)).ToView();
+
+    public async Task<AtmView> UnloadAsync(Guid id, IReadOnlyCollection<CashLoad> notes, CancellationToken cancellationToken)
+        => (await store.UpdateAsync(id, atm => atm.Unload(notes, clock.GetOperationTime()), cancellationToken)).ToView();
 }

@@ -21,22 +21,24 @@ README'de açıkça belirtilir; tasarım niyeti çalışan özellik gibi sunulma
 
 ## Güncel durum — 12 Ekim 2026
 
-İlk iki aşama tamamlandı. Doğrulama: 53 unit test (B3'teki sekiz kabul
-testi dahil) ve 24 gerçek PostgreSQL entegrasyon testi. İkinci aşama B4–B6,
-kaset doluluk sırası, kalıcı idempotency, iptal, otomatik süre dolumu ve İstanbul
-gece yarısı senaryolarını kapsar. İkinci migration Docker başlangıcında otomatik
-uygulandı. Container üzerinde 12 adımlı setup/quote/confirm/replay/cancel akışı,
-Swagger ve health doğrulandı. Onay tekrarı aynı JSON yanıtını döndürdü ve nakit
-ikinci kez düşmedi. .NET/PostgreSQL zaman hassasiyeti farkı regresyon testiyle
-yakalanıp düzeltildi. Derleme sıfır uyarı ve sıfır hatayla tamamlandı.
-Üçüncü aşamanın yatırma adımı (A11/B7) de tamamlandı. Güncel test paketi 72 unit
-ve 34 gerçek PostgreSQL entegrasyon testinden oluşur; hiçbir test atlanmadı.
-Sonraki geliştirme aşaması mutabakat/onay, ledger tutarlılık kontrolü ve raporlamadır.
+Dört aşama tamamlandı. Güncel test paketi 82 unit ve 46 gerçek PostgreSQL
+entegrasyon testinden oluşur; 128 testin tamamı geçti, hiçbir test atlanmadı.
+B3'teki sekiz kabul testi; kalıcı idempotency, iki API örneğinde eşzamanlılık,
+günlük limit, süre dolumu/gece yarısı, yatırma/iade, mutabakat/onay, UNLOAD,
+rapor/ledger ve outbox rollback/retry/paralel dispatcher senaryoları kapsandı.
+
+Migration'lar temiz veritabanında ve mevcut Docker veritabanında uygulandı;
+EF modelinin bekleyen değişikliği bulunmadı. Docker üzerinde 21 adımlık tam
+koleksiyon akışı, Swagger ve health doğrulandı. Onay tekrarı aynı JSON yanıtını
+döndürdü ve nakit ikinci kez düşmedi. .NET/PostgreSQL zaman hassasiyeti farkı
+regresyon testiyle korundu. Derleme sıfır uyarı ve sıfır hatayla tamamlandı.
+Docker'daki düşük nakit outbox kaydının arka plan servisi tarafından işlendiği doğrulandı.
+Teslim kapsamındaki özellikler tamamlandı; üretim kapsamına ait sınırlar README'de yer alır.
 
 ## Üçüncü aşamanın ilk adımı — yatırma (A11, B7)
 
-Bu adımın kapsamı müşteri yatırması ve DEPOSIT ledger kayıtlarıdır. Mutabakat,
-raporlama ve outbox sonraki adımlarda tamamlanacaktır.
+Bu adımın kapsamı müşteri yatırması ve DEPOSIT ledger kayıtlarıdır. Aşağıdaki
+notlar, yatırma adımında uygulanan plan ve doğrulama sonuçlarını kaydeder.
 
 Kod ve testler tamamlandı; EF model değişikliği olmadığı doğrulandı. Docker'daki
 API üzerinde 14 adımlı Postman koleksiyonunun HTTP akışı doğrulandı: taşma/iade
@@ -88,6 +90,14 @@ Kararlar:
 | Teknik teslim | Compose, migration, health, OpenAPI, ProblemDetails ve Postman senaryosu |
 
 ## Önceden belirlenen varsayımlar
+
+Son aşama şu sırayla tamamlandı: mutabakat ve onay → UNLOAD/rapor/ledger kontrolü →
+outbox → eşik, rollback ve paralel işlem testleri → Docker, tam Postman ve README.
+Sayım beş kaseti içerir. Onay beklerken cash/config değişimleri dondurulur.
+Kurlar örnek seed veridir (TRY=1, USD=35, EUR=40); kullanılan kur mutabakat
+satırında saklanır. Kimlikler trim edilip harf duyarsız karşılaştırılır.
+İlk yüklemede düşük bulunan kaset uyarı üretir; stok 10'a ulaşınca uyarı yeniden
+kurulur. Outbox en az bir kez teslim edilir. Fark yoksa sıfır delta hareketi oluşturulmaz.
 
 - İş günü `Europe/Istanbul`; olay zamanları UTC.
 - Günlük limit onay gününe yazılır. Tüm henüz geçerli teklifler oluşturuldukları

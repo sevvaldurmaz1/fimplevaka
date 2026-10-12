@@ -1,10 +1,11 @@
 using AtmCash.Application.Atms;
+using AtmCash.Application.Common;
 using AtmCash.Domain.Atms;
 using Microsoft.EntityFrameworkCore;
 
 namespace AtmCash.Infrastructure.Persistence;
 
-public sealed class PostgresAtmStore(CashDbContext db) : IAtmStore
+public sealed class PostgresAtmStore(CashDbContext db, TimeProvider clock) : IAtmStore
 {
     public async Task AddAsync(Atm atm, CancellationToken cancellationToken)
     {
@@ -31,6 +32,7 @@ public sealed class PostgresAtmStore(CashDbContext db) : IAtmStore
         // Lock the aggregate root before loading inventory: serializes even different API instances.
         var atm = await AtmLock.LoadAsync(db, id, cancellationToken);
         var result = change(atm);
+        db.CaptureLowCashAlerts(atm, clock.GetOperationTime());
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return result;

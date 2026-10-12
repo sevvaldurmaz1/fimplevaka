@@ -4,9 +4,12 @@ using AtmCash.Api.Errors;
 using AtmCash.Api.Health;
 using AtmCash.Application.Atms;
 using AtmCash.Application.Deposits;
+using AtmCash.Application.Operations;
+using AtmCash.Application.Alerts;
 using AtmCash.Application.Withdrawals;
 using AtmCash.Infrastructure.Persistence;
 using AtmCash.Infrastructure.Security;
+using AtmCash.Infrastructure.Outbox;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +23,12 @@ builder.Services.AddDbContext<CashDbContext>(options => options.UseNpgsql(connec
 builder.Services.AddScoped<IAtmStore, PostgresAtmStore>();
 builder.Services.AddScoped<AtmService>();
 builder.Services.AddScoped<DepositService>();
+builder.Services.AddScoped<IOperationsStore, PostgresOperationsStore>();
+builder.Services.AddScoped<ReconciliationService>();
+builder.Services.AddScoped<ReportingService>();
+builder.Services.AddScoped<IOutboxDispatcher, PostgresOutboxDispatcher>();
+if (builder.Configuration.GetValue("Outbox:EnableDispatcher", true))
+    builder.Services.AddHostedService<OutboxDispatcherWorker>();
 builder.Services.AddScoped<IWithdrawalStore, PostgresWithdrawalStore>();
 builder.Services.AddScoped<WithdrawalService>();
 builder.Services.AddSingleton<CassetteAllocator>();

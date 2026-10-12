@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "ATM Cash - Setup, withdrawals and deposits",
-    "description": "Setup, quote/confirm/replay, deposit overflow/returns, cancellation and maintenance. Reconciliation and report steps are pending.",
+    "name": "Fimple ATM Cash Management - End-to-end",
+    "description": "Complete assignment scenario: setup, quote/confirm, deposit, maintenance, reconciliation, different-user approval, consistency and reporting. Extra checks exercise idempotent confirmation and cancellation.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -23,6 +23,10 @@
     },
     {
       "key": "confirmationResult",
+      "value": ""
+    },
+    {
+      "key": "reconciliationId",
       "value": ""
     }
   ],
@@ -460,6 +464,208 @@
             "exec": [
               "pm.test(\"Successful status\", () => pm.expect(pm.response.code).to.eql(200));",
               "pm.test(\"Maintenance\", () => pm.expect(pm.response.json().state).to.eql(\"MAINTENANCE\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15. Reconcile physical counts",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "counter"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/reconciliations",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"cassettes\": [\n    {\n      \"number\": 1,\n      \"notes\": [\n        {\n          \"currency\": \"TRY\",\n          \"denomination\": 100,\n          \"count\": 100\n        }\n      ]\n    },\n    {\n      \"number\": 2,\n      \"notes\": [\n        {\n          \"currency\": \"TRY\",\n          \"denomination\": 50,\n          \"count\": 20\n        }\n      ]\n    },\n    {\n      \"number\": 3,\n      \"notes\": [\n        {\n          \"currency\": \"TRY\",\n          \"denomination\": 20,\n          \"count\": 27\n        }\n      ]\n    },\n    {\n      \"number\": 4,\n      \"notes\": [\n        {\n          \"currency\": \"USD\",\n          \"denomination\": 100,\n          \"count\": 4\n        }\n      ]\n    },\n    {\n      \"number\": 5,\n      \"notes\": [\n        {\n          \"currency\": \"EUR\",\n          \"denomination\": 20,\n          \"count\": 99\n        },\n        {\n          \"currency\": \"TRY\",\n          \"denomination\": 100,\n          \"count\": 1\n        }\n      ]\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", () => pm.expect(pm.response.code).to.eql(201));",
+              "pm.collectionVariables.set(\"reconciliationId\", pm.response.json().id);",
+              "pm.test(\"Awaiting different user\", () => pm.expect(pm.response.json().status).to.eql(\"AWAITING_APPROVAL\"));",
+              "pm.test(\"Foreign difference TRY value\", () => pm.expect(pm.response.json().totalDifferenceTry).to.eql(3500));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "16. Service blocked while awaiting approval",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/state",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"state\": \"IN_SERVICE\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", () => pm.expect(pm.response.code).to.eql(409));",
+              "pm.test(\"Approval required\", () => pm.expect(pm.response.json().code).to.eql(\"reconciliation_awaiting_approval\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17. Same user cannot approve",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "COUNTER"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/reconciliations/{{reconciliationId}}/approve"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", () => pm.expect(pm.response.code).to.eql(409));",
+              "pm.test(\"Four-eyes rule\", () => pm.expect(pm.response.json().code).to.eql(\"same_user_approval\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "18. Different user approves",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-User",
+            "value": "approver"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/reconciliations/{{reconciliationId}}/approve"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Applied\", () => pm.expect(pm.response.json().status).to.eql(\"APPLIED\"));",
+              "pm.test(\"Approver recorded\", () => pm.expect(pm.response.json().approvedBy).to.eql(\"approver\"));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "19. Check movement consistency",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/consistency"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Ledger matches inventory\", () => pm.expect(pm.response.json().isConsistent).to.eql(true));",
+              "pm.test(\"No differences\", () => pm.expect(pm.response.json().differences).to.eql([]));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "20. Operations report",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/report"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"TRY total\", () => pm.expect(pm.response.json().totalInTry).to.eql(104840));",
+              "pm.test(\"No pending approval\", () => pm.expect(pm.response.json().pendingReconciliationId).to.eql(null));",
+              "pm.test(\"Physical note count\", () => pm.expect(pm.response.json().cassettes.reduce((sum, cassette) => sum + cassette.noteCount, 0)).to.eql(251));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "21. Return to service",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/api/atms/{{atmId}}/state",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"state\": \"IN_SERVICE\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Expected status\", () => pm.expect(pm.response.code).to.eql(200));",
+              "pm.test(\"Back in service\", () => pm.expect(pm.response.json().state).to.eql(\"IN_SERVICE\"));"
             ]
           }
         }

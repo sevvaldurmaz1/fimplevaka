@@ -2,6 +2,8 @@ using AtmCash.Domain.Cash;
 using AtmCash.Domain.Common;
 using AtmCash.Domain.Deposits;
 using AtmCash.Domain.Withdrawals;
+using AtmCash.Domain.Reconciliation;
+using AtmCash.Domain.Alerts;
 
 namespace AtmCash.Domain.Atms;
 
@@ -14,6 +16,7 @@ public sealed class Atm
     public string Name { get; private set; } = string.Empty;
     public AtmState State { get; private set; } = AtmState.UNCONFIGURED;
     public bool HasCashLoaded { get; private set; }
+    public Guid? PendingReconciliationId { get; private set; }
     public IReadOnlyCollection<Cassette> Cassettes => _cassettes.AsReadOnly();
 
     public static Atm Create(string name)
@@ -46,6 +49,7 @@ public sealed class Atm
 
     public void Load(IReadOnlyCollection<CashLoad> loads, DateTimeOffset now)
     {
+        EnsureNoPendingReconciliation();
         if (State is not (AtmState.CONFIGURED or AtmState.MAINTENANCE))
             throw new DomainException("invalid_atm_state", "Cash loading requires CONFIGURED or MAINTENANCE state.");
         if (loads.Count == 0 || loads.Any(item => item is null))
@@ -66,6 +70,7 @@ public sealed class Atm
 
     public void ChangeState(AtmState target)
     {
+        EnsureNoPendingReconciliation();
         var allowed = (State, target) switch
         {
             (AtmState.LOADED, AtmState.IN_SERVICE) => HasCashLoaded,
@@ -182,7 +187,82 @@ public sealed class Atm
 
     private void EnsureSetupOrMaintenance()
     {
+        EnsureNoPendingReconciliation();
         if (State is not (AtmState.UNCONFIGURED or AtmState.CONFIGURED or AtmState.MAINTENANCE))
             throw new DomainException("invalid_atm_state", "Configuration requires UNCONFIGURED, CONFIGURED or MAINTENANCE state.");
+    }
+
+    public void Unload(IReadOnlyCollection<CashLoad> notes, DateTimeOffset now)
+    {
+        EnsureSetupOrMaintenance();
+        if (notes.Count == 0 || notes.Any(note => note is null))
+            throw new DomainException("empty_cash_unload", "Provide at least one note to unload.");
+        foreach (var note in notes)
+            FindCassette(note.CassetteNumber).ValidateUnload(note.Currency, note.Denomination, note.Count);
+        foreach (var group in notes.GroupBy(note => (note.CassetteNumber, note.Currency, note.Denomination)))
+        {
+            var available = FindCassette(group.Key.CassetteNumber).Inventory
+                .Where(note => note.Currency == group.Key.Currency && note.Denomination == group.Key.Denomination)
+                .Sum(note => note.AvailableCount);
+            if (group.Sum(note => (long)note.Count) > available)
+                throw new DomainException("insufficient_available_notes", "The unload request exceeds the cassette inventory.");
+        }
+        foreach (var note in notes)
+            FindCassette(note.CassetteNumber).Unload(note.Currency, note.Denomination, note.Count, now);
+    }
+
+    public void ValidateReconciliation(IReadOnlyCollection<CassetteCount> counts)
+    {
+        EnsureSetupOrMaintenance();
+        if (counts.Count != 5 || counts.Any(count => count is null || count.Notes is null)
+            || counts.Select(count => count.Number).Distinct().Count() != 5)
+            throw new DomainException("invalid_reconciliation_counts", "Provide physical counts for each of the five cassettes exactly once.");
+        if (_cassettes.Any(cassette => cassette.ReservedCount != 0))
+            throw new DomainException("active_reservations", "Release all reservations before reconciling.");
+        foreach (var count in counts)
+            FindCassette(count.Number).ValidateCount(count.Notes);
+    }
+
+    public void AwaitReconciliationApproval(CashReconciliation reconciliation)
+    {
+        EnsureSetupOrMaintenance();
+        if (reconciliation.AtmId != Id || reconciliation.Status != ReconciliationStatus.AWAITING_APPROVAL)
+            throw new DomainException("invalid_reconciliation", "The reconciliation does not require approval at this ATM.");
+        PendingReconciliationId = reconciliation.Id;
+    }
+
+    public void ApplyReconciliation(CashReconciliation reconciliation, DateTimeOffset now, string? approver = null)
+    {
+        if (State is not (AtmState.UNCONFIGURED or AtmState.CONFIGURED or AtmState.MAINTENANCE))
+            throw new DomainException("invalid_atm_state", "Reconciliation requires setup or MAINTENANCE state.");
+        if (reconciliation.AtmId != Id || reconciliation.AppliedAt is not null
+            || (PendingReconciliationId is not null && PendingReconciliationId != reconciliation.Id))
+            throw new DomainException("invalid_reconciliation", "The reconciliation cannot be applied at this ATM.");
+        if (reconciliation.Status == ReconciliationStatus.AWAITING_APPROVAL)
+        {
+            if (PendingReconciliationId != reconciliation.Id)
+                throw new DomainException("invalid_reconciliation", "This reconciliation is not pending at this ATM.");
+            reconciliation.ValidateApprover(approver ?? string.Empty);
+        }
+        foreach (var line in reconciliation.Lines)
+        {
+            var current = FindCassette(line.CassetteId).Inventory
+                .SingleOrDefault(note => note.Currency == line.Currency && note.Denomination == line.Denomination);
+            if ((current?.NoteCount ?? 0) != line.SystemCount || (current?.ReservedCount ?? 0) != 0)
+                throw new DomainException("reconciliation_stale", "Inventory changed after this physical count was recorded.");
+        }
+        foreach (var line in reconciliation.Lines.Where(line => line.Difference != 0))
+            FindCassette(line.CassetteId).Adjust(line.Currency, line.Denomination, line.Difference, now, reconciliation.Id);
+        reconciliation.MarkApplied(approver, now);
+        PendingReconciliationId = null;
+    }
+
+    public IReadOnlyList<LowCashAlert> RefreshLowCashAlerts(DateTimeOffset now)
+        => HasCashLoaded ? _cassettes.Select(cassette => cassette.RefreshLowCashAlert(now)).OfType<LowCashAlert>().ToArray() : [];
+
+    private void EnsureNoPendingReconciliation()
+    {
+        if (PendingReconciliationId is not null)
+            throw new DomainException("reconciliation_awaiting_approval", "Approve the pending reconciliation before changing cash, configuration or ATM state.");
     }
 }

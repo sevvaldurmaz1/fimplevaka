@@ -35,12 +35,17 @@ namespace AtmCash.Infrastructure.Persistence.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<Guid?>("PendingReconciliationId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("State")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("PendingReconciliationId");
 
                     b.ToTable("Atms", (string)null);
                 });
@@ -59,6 +64,9 @@ namespace AtmCash.Infrastructure.Persistence.Migrations
 
                     b.Property<int?>("Denomination")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("LowCashAlertActive")
+                        .HasColumnType("boolean");
 
                     b.Property<int>("Number")
                         .HasColumnType("integer");
@@ -111,6 +119,41 @@ namespace AtmCash.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("AtmCash.Domain.Cash.ExchangeRate", b =>
+                {
+                    b.Property<string>("Currency")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<decimal>("TryRate")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.HasKey("Currency");
+
+                    b.ToTable("ExchangeRates", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ExchangeRates_Value", "\"TryRate\" > 0 AND (\"Currency\" <> 'TRY' OR \"TryRate\" = 1)");
+                        });
+
+                    b.HasData(
+                        new
+                        {
+                            Currency = "TRY",
+                            TryRate = 1m
+                        },
+                        new
+                        {
+                            Currency = "USD",
+                            TryRate = 35m
+                        },
+                        new
+                        {
+                            Currency = "EUR",
+                            TryRate = 40m
+                        });
+                });
+
             modelBuilder.Entity("AtmCash.Domain.Ledger.CassetteMovement", b =>
                 {
                     b.Property<Guid>("Id")
@@ -149,6 +192,90 @@ namespace AtmCash.Infrastructure.Persistence.Migrations
                     b.HasIndex("CassetteId", "OccurredAt");
 
                     b.ToTable("Movements", (string)null);
+                });
+
+            modelBuilder.Entity("AtmCash.Domain.Reconciliation.CashReconciliation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("AppliedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ApprovedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("AtmId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SubmittedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("TotalDifferenceTry")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AtmId");
+
+                    b.ToTable("Reconciliations", (string)null);
+                });
+
+            modelBuilder.Entity("AtmCash.Domain.Reconciliation.ReconciliationLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CassetteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CassetteNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CountedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<int>("Denomination")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ReconciliationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SystemCount")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("TryRate")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CassetteId");
+
+                    b.HasIndex("ReconciliationId", "CassetteId", "Currency", "Denomination")
+                        .IsUnique();
+
+                    b.ToTable("ReconciliationLines", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Reconciliation_Counts", "\"SystemCount\" BETWEEN 0 AND 100 AND \"CountedCount\" BETWEEN 0 AND 100");
+                        });
                 });
 
             modelBuilder.Entity("AtmCash.Domain.Withdrawals.QuoteNoteAllocation", b =>
@@ -279,6 +406,59 @@ namespace AtmCash.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("AtmCash.Infrastructure.Outbox.OutboxMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AtmId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("AvailableCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("CassetteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("CassetteNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<int>("Denomination")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset?>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CassetteId");
+
+                    b.HasIndex("SentAt", "CreatedAt");
+
+                    b.ToTable("Outbox", (string)null);
+                });
+
+            modelBuilder.Entity("AtmCash.Domain.Atms.Atm", b =>
+                {
+                    b.HasOne("AtmCash.Domain.Reconciliation.CashReconciliation", null)
+                        .WithMany()
+                        .HasForeignKey("PendingReconciliationId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("AtmCash.Domain.Atms.Cassette", b =>
                 {
                     b.HasOne("AtmCash.Domain.Atms.Atm", null)
@@ -302,6 +482,30 @@ namespace AtmCash.Infrastructure.Persistence.Migrations
                     b.HasOne("AtmCash.Domain.Atms.Cassette", null)
                         .WithMany("Movements")
                         .HasForeignKey("CassetteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AtmCash.Domain.Reconciliation.CashReconciliation", b =>
+                {
+                    b.HasOne("AtmCash.Domain.Atms.Atm", null)
+                        .WithMany()
+                        .HasForeignKey("AtmId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("AtmCash.Domain.Reconciliation.ReconciliationLine", b =>
+                {
+                    b.HasOne("AtmCash.Domain.Atms.Cassette", null)
+                        .WithMany()
+                        .HasForeignKey("CassetteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AtmCash.Domain.Reconciliation.CashReconciliation", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("ReconciliationId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
@@ -348,6 +552,15 @@ namespace AtmCash.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("AtmCash.Infrastructure.Outbox.OutboxMessage", b =>
+                {
+                    b.HasOne("AtmCash.Domain.Atms.Cassette", null)
+                        .WithMany()
+                        .HasForeignKey("CassetteId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("AtmCash.Domain.Atms.Atm", b =>
                 {
                     b.Navigation("Cassettes");
@@ -358,6 +571,11 @@ namespace AtmCash.Infrastructure.Persistence.Migrations
                     b.Navigation("Inventory");
 
                     b.Navigation("Movements");
+                });
+
+            modelBuilder.Entity("AtmCash.Domain.Reconciliation.CashReconciliation", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("AtmCash.Domain.Withdrawals.QuoteOption", b =>
